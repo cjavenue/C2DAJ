@@ -31,6 +31,10 @@ jobs:
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
+        with:
+          # Auto-enable Pages (build type "workflow") if it isn't already,
+          # so the first run doesn't 404 on "Get Pages site failed".
+          enablement: true
 
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v3

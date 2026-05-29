@@ -351,8 +351,11 @@
         // stronger vision model before giving up.
         const refusal = /can'?t see|cannot see|don'?t see|no image (was )?(attached|provided)|unable to (see|view|access|analyze)|provide (it|the image|an image|the picture)|share the image|describe the (key )?details/i;
 
+        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+        // Returns { ok, status, content }. Vision-capable models: openai, openai-large.
         async function askVision(model) {
-          const resp = await fetch('https://text.pollinations.ai/openai?referrer=mj-prompt-builder', {
+          const resp = await fetch('https://text.pollinations.ai/openai', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -368,22 +371,27 @@
               }]
             })
           });
-          if (!resp.ok) {
-            let msg = `Image analysis failed (${resp.status}). The free vision service may be busy — please try again.`;
-            try { const e = await resp.json(); msg = e.error?.message || e.message || msg; } catch (_) {}
-            throw new Error(msg);
-          }
-          const d = await resp.json();
-          return (d.choices?.[0]?.message?.content || "").trim();
+          if (!resp.ok) return { ok: false, status: resp.status, content: '' };
+          let d; try { d = await resp.json(); } catch (_) { return { ok: false, status: 0, content: '' }; }
+          return { ok: true, status: 200, content: (d.choices?.[0]?.message?.content || '').trim() };
         }
 
-        // Vision-capable models per Pollinations docs: openai, openai-large.
-        optimizedText = await askVision('openai');
-        if (!optimizedText || refusal.test(optimizedText)) {
-          optimizedText = await askVision('openai-large');
+        // The free tier can be busy (404/5xx) or fall back to a blind text model.
+        // Try a few times, alternating models, with short backoff.
+        const models = ['openai', 'openai-large'];
+        let lastReason = 'service busy';
+        for (let attempt = 0; attempt < 4 && !optimizedText; attempt++) {
+          const model = models[attempt % models.length];
+          let res;
+          try { res = await askVision(model); }
+          catch (e) { lastReason = 'network error'; await sleep(900); continue; }
+          if (!res.ok) { lastReason = `service returned ${res.status || 'error'}`; await sleep(900); continue; }
+          if (res.content && !refusal.test(res.content)) { optimizedText = res.content; break; }
+          lastReason = res.content ? "model couldn't read the image" : 'empty response';
+          await sleep(600);
         }
-        if (!optimizedText || refusal.test(optimizedText)) {
-          throw new Error("The free vision service couldn't read the image this time. Please tap ✨ Optimize again, or try a clearer / smaller image.");
+        if (!optimizedText) {
+          throw new Error(`The free vision service is busy right now (${lastReason}). Please tap ✨ Optimize again in a moment, or try a clearer / smaller image.`);
         }
       } else {
         const instruction = "Act as an expert Midjourney prompt engineer. Rewrite and expand the following idea into a highly detailed, evocative, comma-separated Midjourney prompt. Return ONLY the prompt text, no intro, no outro, no quotes. Idea: ";

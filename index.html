@@ -335,11 +335,12 @@
 
       if (base64Image) {
         // Keyless vision via Pollinations' OpenAI-compatible endpoint.
-        let aiInstructions = "Act as an expert Midjourney prompt engineer. Extract the stylistic details, color grading, lighting, and mood from this image. ";
-        aiInstructions += originalText
-          ? `Merge those visual details seamlessly to enhance and expand this base concept: "${originalText}". `
-          : "Write a highly detailed prompt that recreates this image's exact aesthetic and subject. ";
-        aiInstructions += "Respond ONLY with a rich, comma-separated string of descriptive Midjourney keywords. No conversational text, no quotes.";
+        const tail = "Respond ONLY with a rich, comma-separated string of descriptive Midjourney keywords. No conversational text, no quotes.";
+        const aiInstructions = originalText
+          // (3) base prompt drives the subject; the image supplies only color/tones/style
+          ? `Act as an expert Midjourney prompt engineer. The core subject and idea must come entirely from this concept: "${originalText}". From the attached image, borrow ONLY its color palette, tones, lighting and artistic style — do NOT take its subject matter or objects. Write a highly detailed prompt that depicts the concept rendered in the image's colors, tones and style. ${tail}`
+          // (1) image only → describe it so a similar kind of image is generated
+          : `Act as an expert Midjourney prompt engineer. Analyze this image — its subject, composition, color palette, tones, lighting, mood and artistic style — and write a highly detailed prompt that would generate a similar kind of image. ${tail}`;
 
         const response = await fetch('https://text.pollinations.ai/openai', {
           method: 'POST',

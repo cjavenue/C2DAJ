@@ -335,12 +335,14 @@
 
       if (base64Image) {
         // Keyless vision via Pollinations' OpenAI-compatible endpoint.
+        // The image is the PRIMARY source for subject/model + style; the base
+        // prompt (if any) only shapes the surrounding scene.
         const tail = "Respond ONLY with a rich, comma-separated string of descriptive Midjourney keywords. No conversational text, no quotes.";
         const aiInstructions = originalText
-          // (3) base prompt drives the subject; the image supplies only color/tones/style
-          ? `Act as an expert Midjourney prompt engineer. The core subject and idea must come entirely from this concept: "${originalText}". From the attached image, borrow ONLY its color palette, tones, lighting and artistic style — do NOT take its subject matter or objects. Write a highly detailed prompt that depicts the concept rendered in the image's colors, tones and style. ${tail}`
-          // (1) image only → describe it so a similar kind of image is generated
-          : `Act as an expert Midjourney prompt engineer. Analyze this image — its subject, composition, color palette, tones, lighting, mood and artistic style — and write a highly detailed prompt that would generate a similar kind of image. ${tail}`;
+          // (3) image drives subject + style; base prompt builds the scene around it
+          ? `Act as an expert Midjourney prompt engineer. Base the prompt ENTIRELY on the attached image: capture its main subject/model, their appearance and pose, the composition, color palette, tones, lighting, mood and artistic style in rich detail. Then weave in this direction to build the surrounding scene/setting, while keeping the image's subject and style as the foundation: "${originalText}". ${tail}`
+          // (1) image only → capture everything to generate a very similar image
+          : `Act as an expert Midjourney prompt engineer. Base the prompt ENTIRELY on the attached image: capture its main subject/model, their appearance, the composition, color palette, tones, lighting, mood and artistic style in rich detail so it generates a very similar image. ${tail}`;
 
         const response = await fetch('https://text.pollinations.ai/openai', {
           method: 'POST',

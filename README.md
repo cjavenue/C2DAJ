@@ -4,8 +4,7 @@ A mobile-first **Progressive Web App (PWA)** for building, optimizing, and copyi
 [Midjourney](https://www.midjourney.com) prompts on the go. It's a single static
 page — no build step, no backend — and it leans entirely on **free / open services**:
 
-- **[Pollinations.ai](https://pollinations.ai)** — free, no-key text AI used to expand & optimize prompts.
-- **[Google Gemini](https://aistudio.google.com/app/apikey) free tier** — optional, you supply your own free key, used to analyze a reference image and turn it into prompt keywords.
+- **[Pollinations.ai](https://pollinations.ai)** — free, **no-key** AI used both to expand text ideas and to analyze an uploaded reference image (vision) into prompt keywords. No API key required anywhere.
 
 ## Features
 

@@ -32,14 +32,20 @@ python3 -m http.server 8080
 
 ## Deploy to GitHub Pages (test it on your phone)
 
-This repo includes a workflow at `.github/workflows/deploy-pages.yml` that
-publishes the site automatically.
+This is a plain static site, so the simplest, most reliable hosting is Pages'
+**"Deploy from a branch"** mode — no workflow, no token permissions:
 
-1. In GitHub: **Settings → Pages → Build and deployment → Source → "GitHub Actions"**.
-2. Push to the configured branch — the **Deploy to GitHub Pages** workflow runs and publishes the site.
-3. Open the published URL (shown in the Actions run summary, typically
-   `https://<your-username>.github.io/<repo>/`) on your phone, then use your
-   browser's **Add to Home Screen** to install it.
+1. In GitHub: **Settings → Pages → Build and deployment → Source → "Deploy from a branch"**.
+2. Set **Branch: `main`**, **Folder: `/ (root)`**, then **Save**.
+3. Wait ~1 minute, refresh the Pages screen, and open the
+   **"Your site is live at `https://<your-username>.github.io/<repo>/`"** link
+   on your phone, then use the browser's **Add to Home Screen** to install it.
+
+> Avoid the "GitHub Actions" source unless the repo's
+> **Settings → Actions → General → Workflow permissions** is set to
+> **"Read and write"** — otherwise `configure-pages` fails with
+> *"Resource not accessible by integration"* because the Actions token can't
+> create the Pages site.
 
 ## Project structure
 
@@ -49,7 +55,7 @@ manifest.webmanifest    PWA metadata (name, icons, theme)
 sw.js                   Service worker (offline app-shell cache)
 icons/                  App icons (192/512 + maskable + apple-touch)
 scripts/gen_icons.py    Regenerates the icons (stdlib only, no deps)
-.github/workflows/      GitHub Pages deploy workflow
+.nojekyll               Tells Pages to serve files as-is (no Jekyll)
 ```
 
 ### Regenerating icons

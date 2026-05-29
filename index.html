@@ -123,7 +123,7 @@
 
 <label>Reference Image (Optional)</label>
 <input type="file" id="imageUpload" accept="image/*">
-<small class="api-note">Analyzed privately on your device — no key, the image is never uploaded. First run downloads a one-time model (~250 MB, then cached). Add a base idea below to build a scene around it.</small>
+<small class="api-note">Analyzed privately on your device — no key, the image is never uploaded. First run downloads a one-time model (~300 MB) and can take up to a minute; it's cached and fast after that. Add a base idea below to build a scene around it.</small>
 <img id="imagePreview" alt="Image Preview">
 
 <div class="label-row">
@@ -314,23 +314,57 @@
   loadState();
   updatePrompt();
 
-  // ---- on-device image captioner (transformers.js, lazy-loaded & cached) ----
-  let _captionerPromise = null;
-  function loadCaptioner(onProgress) {
-    if (!_captionerPromise) {
-      _captionerPromise = (async () => {
-        const t = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
-        t.env.allowLocalModels = false;            // fetch the model from the HF hub
-        return await t.pipeline('image-to-text', 'Xenova/vit-gpt2-image-captioning', {
-          progress_callback: (d) => {
-            if (d && d.status === 'progress' && typeof d.progress === 'number') {
-              onProgress && onProgress(Math.round(d.progress));
-            }
+  // ---- on-device image analysis (transformers.js, lazy-loaded & cached) ----
+  // Primary: Florence-2 detailed caption (accurate). Fallback: BLIP-base.
+  // Returns { type, run(dataUrl) -> caption string }.
+  let _visionPromise = null;
+  function loadVision(onProgress) {
+    if (_visionPromise) return _visionPromise;
+    _visionPromise = (async () => {
+      const t = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3');
+      t.env.allowLocalModels = false;             // fetch models from the HF hub
+      const prog = (d) => {
+        if (d && d.status === 'progress' && typeof d.progress === 'number') {
+          onProgress && onProgress(Math.round(d.progress));
+        }
+      };
+
+      // Try Florence-2 (detailed, grounded captions).
+      try {
+        const id = 'onnx-community/Florence-2-base-ft';
+        const [model, processor, tokenizer] = await Promise.all([
+          t.Florence2ForConditionalGeneration.from_pretrained(id, { dtype: 'q8', progress_callback: prog }),
+          t.AutoProcessor.from_pretrained(id),
+          t.AutoTokenizer.from_pretrained(id)
+        ]);
+        const RawImage = t.RawImage;
+        return {
+          type: 'florence',
+          run: async (dataUrl) => {
+            const task = '<MORE_DETAILED_CAPTION>';
+            const image = await RawImage.fromURL(dataUrl);
+            const vision_inputs = await processor(image);
+            const text_inputs = tokenizer(processor.construct_prompts(task));
+            const ids = await model.generate({ ...text_inputs, ...vision_inputs, max_new_tokens: 256, num_beams: 1, do_sample: false });
+            const decoded = tokenizer.batch_decode(ids, { skip_special_tokens: false })[0];
+            const out = processor.post_process_generation(decoded, task, image.size);
+            return (out[task] || '').toString().trim();
           }
-        });
-      })().catch((e) => { _captionerPromise = null; throw e; });
-    }
-    return _captionerPromise;
+        };
+      } catch (e) {
+        // Florence-2 couldn't load (e.g. memory) — fall back to a lighter captioner.
+        console.warn('Florence-2 unavailable, falling back to BLIP-base:', e);
+        const captioner = await t.pipeline('image-to-text', 'Xenova/blip-image-captioning-base', { progress_callback: prog });
+        return {
+          type: 'blip',
+          run: async (dataUrl) => {
+            const o = await captioner(dataUrl, { max_new_tokens: 60 });
+            return ((Array.isArray(o) ? o[0]?.generated_text : o?.generated_text) || '').trim();
+          }
+        };
+      }
+    })().catch((e) => { _visionPromise = null; throw e; });
+    return _visionPromise;
   }
 
   // ---- AI optimize (free, keyless — on-device vision + Pollinations text) ----
@@ -343,7 +377,7 @@
     }
     // Image analysis can run offline once the on-device model is cached; the
     // text path (and the first model download) still need a connection.
-    if (!navigator.onLine && !(base64Image && _captionerPromise)) {
+    if (!navigator.onLine && !(base64Image && _visionPromise)) {
       alert("You're offline. Connect to the internet — AI optimize needs it (the on-device vision model also downloads once on first use).");
       return;
     }
@@ -361,13 +395,12 @@
         const imageDataUrl = `data:${mimeType};base64,${base64Image}`;
 
         optimizeBtn.innerText = "⏳ Loading vision model…";
-        const captioner = await loadCaptioner((pct) => {
+        const vision = await loadVision((pct) => {
           optimizeBtn.innerText = (pct != null) ? `⏳ Loading model ${pct}%` : "⏳ Loading vision model…";
         });
 
         optimizeBtn.innerText = "⏳ Analyzing image…";
-        const capOut = await captioner(imageDataUrl, { max_new_tokens: 60 });
-        const caption = ((Array.isArray(capOut) ? capOut[0]?.generated_text : capOut?.generated_text) || "").trim();
+        const caption = await vision.run(imageDataUrl);
         if (!caption) throw new Error("Couldn't read the image. Please try a clearer image.");
 
         // Turn the local caption (+ optional base idea) into a rich MJ prompt.

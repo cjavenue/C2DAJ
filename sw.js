@@ -1,7 +1,7 @@
 /* Service worker for MJ Prompt Builder Pro.
  * Bump CACHE_VERSION whenever the app shell changes so clients pick up updates.
  */
-const CACHE_VERSION = 'mj-builder-v1';
+const CACHE_VERSION = 'mj-builder-v2';
 const APP_SHELL = [
   './',
   './index.html',

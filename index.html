@@ -344,30 +344,47 @@
           // (1) image only → capture everything to generate a very similar image
           : `Act as an expert Midjourney prompt engineer. Base the prompt ENTIRELY on the attached image: capture its main subject/model, their appearance, the composition, color palette, tones, lighting, mood and artistic style in rich detail so it generates a very similar image. ${tail}`;
 
-        const response = await fetch('https://text.pollinations.ai/openai', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: 'openai',          // vision-capable, free, no key
-            referrer: 'mj-prompt-builder',
-            messages: [{
-              role: 'user',
-              content: [
-                { type: 'text', text: aiInstructions },
-                { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Image}` } }
-              ]
-            }]
-          })
-        });
+        const imageDataUrl = `data:${mimeType};base64,${base64Image}`;
 
-        if (!response.ok) {
-          let msg = `Image analysis failed (${response.status}). The free vision service may be busy — please try again.`;
-          try { const e = await response.json(); msg = e.error?.message || e.message || msg; } catch (_) {}
-          throw new Error(msg);
+        // Pollinations' free tier can intermittently fall back to a text-only
+        // model that "can't see" the image. Detect that and retry with the
+        // stronger vision model before giving up.
+        const refusal = /can'?t see|cannot see|don'?t see|no image (was )?(attached|provided)|unable to (see|view|access|analyze)|provide (it|the image|an image|the picture)|share the image|describe the (key )?details/i;
+
+        async function askVision(model) {
+          const resp = await fetch('https://text.pollinations.ai/openai?referrer=mj-prompt-builder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model,
+              referrer: 'mj-prompt-builder',
+              max_tokens: 600,
+              messages: [{
+                role: 'user',
+                content: [
+                  { type: 'text', text: aiInstructions },
+                  { type: 'image_url', image_url: { url: imageDataUrl } }
+                ]
+              }]
+            })
+          });
+          if (!resp.ok) {
+            let msg = `Image analysis failed (${resp.status}). The free vision service may be busy — please try again.`;
+            try { const e = await resp.json(); msg = e.error?.message || e.message || msg; } catch (_) {}
+            throw new Error(msg);
+          }
+          const d = await resp.json();
+          return (d.choices?.[0]?.message?.content || "").trim();
         }
-        const data = await response.json();
-        optimizedText = data.choices?.[0]?.message?.content || "";
-        if (!optimizedText.trim()) throw new Error("The vision service returned an empty result. Please try again.");
+
+        // Vision-capable models per Pollinations docs: openai, openai-large.
+        optimizedText = await askVision('openai');
+        if (!optimizedText || refusal.test(optimizedText)) {
+          optimizedText = await askVision('openai-large');
+        }
+        if (!optimizedText || refusal.test(optimizedText)) {
+          throw new Error("The free vision service couldn't read the image this time. Please tap ✨ Optimize again, or try a clearer / smaller image.");
+        }
       } else {
         const instruction = "Act as an expert Midjourney prompt engineer. Rewrite and expand the following idea into a highly detailed, evocative, comma-separated Midjourney prompt. Return ONLY the prompt text, no intro, no outro, no quotes. Idea: ";
         const response = await fetch('https://text.pollinations.ai/' + encodeURIComponent(instruction + originalText));

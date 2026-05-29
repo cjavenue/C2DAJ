@@ -123,7 +123,7 @@
 
 <label>Reference Image (Optional)</label>
 <input type="file" id="imageUpload" accept="image/*">
-<small class="api-note">Upload a sample image and it's analyzed automatically — no API key needed. Add a base idea below to blend it in.</small>
+<small class="api-note">Analyzed privately on your device — no key, the image is never uploaded. First run downloads a one-time model (~250 MB, then cached). Add a base idea below to build a scene around it.</small>
 <img id="imagePreview" alt="Image Preview">
 
 <div class="label-row">
@@ -314,7 +314,26 @@
   loadState();
   updatePrompt();
 
-  // ---- AI optimize (free, keyless — Pollinations.ai) ----
+  // ---- on-device image captioner (transformers.js, lazy-loaded & cached) ----
+  let _captionerPromise = null;
+  function loadCaptioner(onProgress) {
+    if (!_captionerPromise) {
+      _captionerPromise = (async () => {
+        const t = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
+        t.env.allowLocalModels = false;            // fetch the model from the HF hub
+        return await t.pipeline('image-to-text', 'Xenova/vit-gpt2-image-captioning', {
+          progress_callback: (d) => {
+            if (d && d.status === 'progress' && typeof d.progress === 'number') {
+              onProgress && onProgress(Math.round(d.progress));
+            }
+          }
+        });
+      })().catch((e) => { _captionerPromise = null; throw e; });
+    }
+    return _captionerPromise;
+  }
+
+  // ---- AI optimize (free, keyless — on-device vision + Pollinations text) ----
   async function optimizePrompt() {
     const originalText = basePromptInput.value.trim();
 
@@ -322,8 +341,10 @@
       alert("Please enter a base idea or upload a reference image first.");
       return;
     }
-    if (!navigator.onLine) {
-      alert("You're offline. Connect to the internet to use AI optimize.");
+    // Image analysis can run offline once the on-device model is cached; the
+    // text path (and the first model download) still need a connection.
+    if (!navigator.onLine && !(base64Image && _captionerPromise)) {
+      alert("You're offline. Connect to the internet — AI optimize needs it (the on-device vision model also downloads once on first use).");
       return;
     }
 
@@ -334,64 +355,35 @@
       let optimizedText = "";
 
       if (base64Image) {
-        // Keyless vision via Pollinations' OpenAI-compatible endpoint.
-        // The image is the PRIMARY source for subject/model + style; the base
-        // prompt (if any) only shapes the surrounding scene.
-        const tail = "Respond ONLY with a rich, comma-separated string of descriptive Midjourney keywords. No conversational text, no quotes.";
-        const aiInstructions = originalText
-          // (3) image drives subject + style; base prompt builds the scene around it
-          ? `Act as an expert Midjourney prompt engineer. Base the prompt ENTIRELY on the attached image: capture its main subject/model, their appearance and pose, the composition, color palette, tones, lighting, mood and artistic style in rich detail. Then weave in this direction to build the surrounding scene/setting, while keeping the image's subject and style as the foundation: "${originalText}". ${tail}`
-          // (1) image only → capture everything to generate a very similar image
-          : `Act as an expert Midjourney prompt engineer. Base the prompt ENTIRELY on the attached image: capture its main subject/model, their appearance, the composition, color palette, tones, lighting, mood and artistic style in rich detail so it generates a very similar image. ${tail}`;
-
+        // On-device, keyless image analysis (transformers.js) — the image never
+        // leaves the phone. We caption it locally, then expand that caption into
+        // a rich Midjourney prompt via the reliable text endpoint.
         const imageDataUrl = `data:${mimeType};base64,${base64Image}`;
 
-        // Pollinations' free tier can intermittently fall back to a text-only
-        // model that "can't see" the image. Detect that and retry with the
-        // stronger vision model before giving up.
-        const refusal = /can'?t see|cannot see|don'?t see|no image (was )?(attached|provided)|unable to (see|view|access|analyze)|provide (it|the image|an image|the picture)|share the image|describe the (key )?details/i;
+        optimizeBtn.innerText = "⏳ Loading vision model…";
+        const captioner = await loadCaptioner((pct) => {
+          optimizeBtn.innerText = (pct != null) ? `⏳ Loading model ${pct}%` : "⏳ Loading vision model…";
+        });
 
-        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+        optimizeBtn.innerText = "⏳ Analyzing image…";
+        const capOut = await captioner(imageDataUrl, { max_new_tokens: 60 });
+        const caption = ((Array.isArray(capOut) ? capOut[0]?.generated_text : capOut?.generated_text) || "").trim();
+        if (!caption) throw new Error("Couldn't read the image. Please try a clearer image.");
 
-        // Returns { ok, status, content }. Vision-capable models: openai, openai-large.
-        async function askVision(model) {
-          const resp = await fetch('https://text.pollinations.ai/openai', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              model,
-              referrer: 'mj-prompt-builder',
-              max_tokens: 600,
-              messages: [{
-                role: 'user',
-                content: [
-                  { type: 'text', text: aiInstructions },
-                  { type: 'image_url', image_url: { url: imageDataUrl } }
-                ]
-              }]
-            })
-          });
-          if (!resp.ok) return { ok: false, status: resp.status, content: '' };
-          let d; try { d = await resp.json(); } catch (_) { return { ok: false, status: 0, content: '' }; }
-          return { ok: true, status: 200, content: (d.choices?.[0]?.message?.content || '').trim() };
-        }
+        // Turn the local caption (+ optional base idea) into a rich MJ prompt.
+        // The image is the foundation; the base prompt builds the scene around it.
+        optimizeBtn.innerText = "⏳ Building prompt…";
+        const instruction = originalText
+          ? `Act as an expert Midjourney prompt engineer. A reference image shows: "${caption}". Treat that as the main subject and visual style. Build the surrounding scene/setting from this direction: "${originalText}". Write ONE highly detailed, comma-separated Midjourney prompt capturing subject, style, colors, lighting and mood. Return ONLY the prompt text, no intro, no quotes.`
+          : `Act as an expert Midjourney prompt engineer. A reference image shows: "${caption}". Write ONE highly detailed, comma-separated Midjourney prompt that would recreate a very similar image — capture subject, style, colors, lighting and mood. Return ONLY the prompt text, no intro, no quotes.`;
+        try {
+          const resp = await fetch('https://text.pollinations.ai/' + encodeURIComponent(instruction));
+          if (resp.ok) optimizedText = (await resp.text()).trim();
+        } catch (_) { /* fall through to the local fallback below */ }
 
-        // The free tier can be busy (404/5xx) or fall back to a blind text model.
-        // Try a few times, alternating models, with short backoff.
-        const models = ['openai', 'openai-large'];
-        let lastReason = 'service busy';
-        for (let attempt = 0; attempt < 4 && !optimizedText; attempt++) {
-          const model = models[attempt % models.length];
-          let res;
-          try { res = await askVision(model); }
-          catch (e) { lastReason = 'network error'; await sleep(900); continue; }
-          if (!res.ok) { lastReason = `service returned ${res.status || 'error'}`; await sleep(900); continue; }
-          if (res.content && !refusal.test(res.content)) { optimizedText = res.content; break; }
-          lastReason = res.content ? "model couldn't read the image" : 'empty response';
-          await sleep(600);
-        }
+        // If the text service is down, still produce something useful from the caption.
         if (!optimizedText) {
-          throw new Error(`The free vision service is busy right now (${lastReason}). Please tap ✨ Optimize again in a moment, or try a clearer / smaller image.`);
+          optimizedText = originalText ? `${caption}, ${originalText}` : caption;
         }
       } else {
         const instruction = "Act as an expert Midjourney prompt engineer. Rewrite and expand the following idea into a highly detailed, evocative, comma-separated Midjourney prompt. Return ONLY the prompt text, no intro, no outro, no quotes. Idea: ";

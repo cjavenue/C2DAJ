@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Nearby — Live Map</title>
+<meta name="description" content="See what's happening around you and connect with people nearby in real time.">
+<meta name="theme-color" content="#0c1116">
+
+<!-- MapLibre GL JS (open-source, no API key required) -->
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- The live map fills the viewport. It loads immediately but stays blurred
+     behind the location gate until the user opts in (screen 2). -->
+<div id="map" class="blurred"></div>
+
+<!-- ===== Map overlay UI (screen 1) ===== -->
+<div id="hud" aria-hidden="true">
+
+  <!-- Online presence pill (top-left). Count is mocked until a realtime backend exists. -->
+  <div id="onlinePill" class="pill">
+    <span class="dot"></span>
+    <span id="onlineCount">0</span>
+    <span class="pill-label">Online</span>
+  </div>
+
+  <!-- Right-side floating controls (layers / edit / locate) -->
+  <div class="fab-stack">
+    <button class="fab" id="layersBtn" title="Layers" aria-label="Layers">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 2 2 7l10 5 10-5-10-5Zm0 7.2L4.8 7 12 4.3 19.2 7 12 9.2ZM2 12l10 5 10-5-1.9-1L12 15 3.9 11 2 12Zm0 5 10 5 10-5-1.9-1L12 20 3.9 16 2 17Z"/></svg>
+    </button>
+    <button class="fab" id="editBtn" title="Edit" aria-label="Edit">
+      <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25ZM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83Z"/></svg>
+    </button>
+    <button class="fab fab-locate" id="locateBtn" title="Recenter on me" aria-label="Recenter on me">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M2.5 11.5 21 3l-8.5 18.5-2-7.5-8-2.5Z"/></svg>
+    </button>
+  </div>
+
+  <!-- Post Status (placeholder for now) -->
+  <button id="postBtn" class="post-btn">
+    <span class="plus">+</span> Post Status
+  </button>
+</div>
+
+<!-- ===== Location gate (screen 2) ===== -->
+<div id="gate" class="gate-backdrop">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="gateTitle">
+    <div class="sheet-grabber"></div>
+    <div class="pin-badge">
+      <svg viewBox="0 0 24 24" width="34" height="34"><path fill="currentColor" d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7Zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5Z"/></svg>
+    </div>
+    <h1 id="gateTitle">Enable your location</h1>
+    <p class="sheet-sub">See what's happening around you and connect with people nearby in real time</p>
+    <button id="enableBtn" class="enable-btn">Enable Location</button>
+    <button id="manualBtn" class="manual-btn">Set location manually</button>
+    <p class="privacy-note">🔒 Your location stays on your device — it isn't uploaded anywhere yet.</p>
+  </div>
+</div>
+
+<!-- Manual-location hint banner -->
+<div id="manualHint" class="manual-hint">Tap anywhere on the map to drop your location</div>
+
+<!-- Toast -->
+<div id="toast" class="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
